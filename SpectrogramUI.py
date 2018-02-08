@@ -20,7 +20,6 @@ from matplotlib import dates
 from datetime import datetime
 import matplotlib.pyplot as plt
 import numpy as np
-#from pylab import figure, plot, ion, linspace, arange, sin, pi
 from PySide import QtCore, QtGui
 
 VERSION = 'PRIZM Spectrogram'
@@ -30,10 +29,11 @@ def is_non_zero_file(fpath):  #Check if file exists and is not empty
     return os.path.isfile(fpath) and os.path.getsize(fpath) > 0
 
 # Add global version number/name
-global 	zoomInit,scrollInit,spectrumNumberScale,slidersHaveBeenChanged,horizontalslidersHaveBeenChanged,\
-maximumTime, displayAverage, loopCounter, isLocked, zoomInit, displayAverage_pol1, \
-scrollInit_pol1,spectrumNumberScale_pol1,slidersHaveBeenChanged_pol1,horizontalslidersHaveBeenChanged_pol1,\
-pol0_has_been_initialised, pol1_has_been_initialised, mouseEvent, cwd
+global 	sampleTimeValue,timeRegionValue,spectrumNumberScale,slidersHaveBeenChanged,horizontalslidersHaveBeenChanged,\
+maximumTime, displayAverage, spectrumCounter, isLocked, sampleTimeValue, displayAverage_pol1, \
+timeRegionValue_pol1,spectrumNumberScale_pol1,slidersHaveBeenChanged_pol1,horizontalslidersHaveBeenChanged_pol1,\
+pol0_has_been_initialised, pol1_has_been_initialised, lockedPlotEvent, cwd, snapboard_capture_time
+
 
 cwd = os.getcwd()	#Current working directory
 
@@ -41,18 +41,20 @@ cwd = os.getcwd()	#Current working directory
 pol0_has_been_initialised = False
 pol1_has_been_initialised = False
 isLocked = False
-mouseEvent = 0
+lockedPlotEvent = 0
+spectrumCounter=0
+snapboard_capture_time=3.3	#	#The 'snapboard_capture_time' value represents the average number of seconds taken to acquire the data SnapBoard.
+								#You may change this to suit the time taken on your system
 #Pol 0
-zoomInit=5
-scrollInit=0
+sampleTimeValue=5
+timeRegionValue=0
 spectrumNumberScale=0
 slidersHaveBeenChanged=False
 horizontalslidersHaveBeenChanged=False
 displayAverage=False
-loopCounter=0
 #Pol 1
-zoomInit_pol1=5
-scrollInit_pol1=0
+sampleTimeValue_pol1=5
+timeRegionValue_pol1=0
 spectrumNumberScale_pol1=0
 slidersHaveBeenChanged_pol1=False
 horizontalslidersHaveBeenChanged_pol1=False
@@ -74,18 +76,10 @@ class SpectrogramCanvas(FigureCanvas):
 		# Initialize canvas
 		super(SpectrogramCanvas, self).__init__(self.figure)
 
-		#self.figure.subplots_adjust(bottom=0.2)
-
 		gs = GridSpec(1, 2, left=0.07, right=0.95, bottom=0.06, top=0.95, wspace=0.05)
 		#gs.tight_layout(self.figure)
 		gs0 = GridSpecFromSubplotSpec(2, 2, subplot_spec=gs[0], height_ratios=[1,2], width_ratios=[9.5, 0.5])
 		gs1 = GridSpecFromSubplotSpec(2, 2, subplot_spec=gs[1], height_ratios=[1,2], width_ratios=[9.5, 0.5])
-
-		#gs0 = GridSpec(2, 2, height_ratios=[1,2], width_ratios=[9.5, 0.5])
-		#gs.update(left=0.2, right=0.925, bottom=0.06, top=0.95, wspace=0.05)
-		#gs1 = GridSpec(2, 2, height_ratios=[1,2], width_ratios=[9.5, 0.5])
-		#gs1.update(left=0.2, right=0.925, bottom=0.06, top=0.95, wspace=0.05)
-
 
 		# Set up spectrogram waterfall plot
 		self.spectAxPol0 = self.figure.add_subplot(gs0[2])
@@ -128,7 +122,7 @@ class SpectrogramCanvas(FigureCanvas):
 		msg.setStandardButtons(QtGui.QMessageBox.Ok)
 		#Show a message of which files are missing if files are missing
 		if not is_non_zero_file('%s/pol0.scio' % cwd) and not is_non_zero_file('%s/pol1.scio' % cwd):
-			msg.setText("Both pol0.scio and pol1.scio are missing.")
+			msg.setText("Both pol0.scio and pol1.scio are missing. The interface will be enabled when the files are retrieved.")
 			msg.exec_()
 		if is_non_zero_file('%s/pol0.scio' % cwd) and not is_non_zero_file('%s/pol1.scio' % cwd):
 			msg.setText("'pol1.scio' is missing.")
@@ -141,21 +135,17 @@ class SpectrogramCanvas(FigureCanvas):
 		#Get limits of the waterfall plot; these variable are used when zooming into the subplot
 		#Pol0
 		self.ymin, self.ymax = self.spectAxPol0.get_ylim()
-		self.zoomedymax = self.ymax
-		self.zoomedymin = self.ymin
 		#Pol1
 		self.ymin_pol1, self.ymax_pol1 = self.spectAxPol1.get_ylim()
-		self.zoomedymax_pol1 = self.ymax_pol1
-		self.zoomedymin_pol1 = self.ymin_pol1
 
 		#Initiliase variables
 		#Pol0
-		self.horizontalMarker = 0	#This is the variable that stores the height of the specctrum marker on the interface (black dashed line)
+		self.horizontalMarker = 0	#This is the variable that stores the height of the spectrum marker on the interface (black dashed line)
 		self.spectrumMarker = 0		#This is the variable that stores the spectrum number in the array
 		self.maxExtentStretch = 60	#This is the maximum height to which the waterfall plot is stretched to
 		#Pol1
-		self.horizontalMarker_pol1 = 0	#This is the variable that stores the height of the specctrum marker on the interface (black dashed line)
-		self.spectrumMarker_pol1 = 0		#This is the variable that stores the spectrum number in the array
+		self.horizontalMarker_pol1 = 0	#This is the variable that stores the height of the spectrum marker on the interface (black dashed line)
+		self.spectrumMarker_pol1 = 0	#This is the variable that stores the spectrum number in the array
 		self.maxExtentStretch_pol1 = 60	#This is the maximum height to which the waterfall plot is stretched to
 
 		#Initialize pol0
@@ -171,13 +161,10 @@ class SpectrogramCanvas(FigureCanvas):
 		self.updateAni = FuncAnimation(self.figure, self._updateAxis, interval=100, blit=False)
 
 
-
-
 	def initializePol0(self, *fargs):
 		#Reset graphs
 		self.spectAxPol0.cla()
 		self.histAxPol0.cla()
-		#self.colourBarPol0.cla()
 
 		#Setup spectrum graph
 		self.histAxPol0.set_title('Frequency Spectrum - Pol 0')
@@ -209,13 +196,12 @@ class SpectrogramCanvas(FigureCanvas):
 		self.nu=((np.arange(self.waterfall.shape[1])+0.5)/(1.0*self.waterfall.shape[1]))*250; # frequency range in MHz
 		self.spectPlotPol0 = self.spectAxPol0.imshow(self.waterfall, aspect='auto', cmap='jet',extent=[0,250,24,0],vmin=self.vmin,vmax=self.vmax)
 
-		self.maxExtentStretch = self.init_num_rows*3.3
+		self.maxExtentStretch = self.init_num_rows*snapboard_capture_time	#This equation pulls all the initial data from the 'scio' and gets the time exceeded by multiplying the number of spectra with snapboard_capture_time
+
 		self.spectPlotPol0.set_extent([0,250,self.maxExtentStretch,0])
-		self.spectAxPol0.set_ylim(top=scrollInit, bottom=scrollInit+zoomInit)
+		self.spectAxPol0.set_ylim(top=timeRegionValue, bottom=timeRegionValue+sampleTimeValue)
 
 		self.ymin, self.ymax = self.spectAxPol0.get_ylim()
-		self.zoomedymax = self.ymax
-		self.zoomedymin = self.ymin
 
 		#Save plotting data
 		self.data = self.pol0[self.init_num_rows-self.horizontalMarker-1,:]
@@ -268,13 +254,11 @@ class SpectrogramCanvas(FigureCanvas):
 		self.figure.colorbar(self.spectPlotPol1, cax=self.colourBarPol1, use_gridspec=True, format=FuncFormatter(lambda x, pos: '%d' % (x*100.0)))
 		self.colourBarPol1.set_ylabel('Intensity')
 
-		self.maxExtentStretch_pol1 = self.init_num_rows_pol1*3.3
+		self.maxExtentStretch_pol1 = self.init_num_rows_pol1*snapboard_capture_time
 		self.spectPlotPol1.set_extent([0,250,self.maxExtentStretch_pol1,0])
-		self.spectAxPol1.set_ylim(top=scrollInit_pol1, bottom=scrollInit_pol1+zoomInit_pol1)
+		self.spectAxPol1.set_ylim(top=timeRegionValue_pol1, bottom=timeRegionValue_pol1+sampleTimeValue_pol1)
 
 		self.ymin_pol1, self.ymax_pol1 = self.spectAxPol1.get_ylim()
-		self.zoomedymax_pol1 = self.ymax_pol1
-		self.zoomedymin_pol1 = self.ymin_pol1
 
 		#Save plotting data
 		self.data_pol1 = self.pol1[self.init_num_rows_pol1-self.horizontalMarker_pol1-1,:]
@@ -287,47 +271,47 @@ class SpectrogramCanvas(FigureCanvas):
 
 	#Pol 0 - Update limits to spectrogram
 	def histPol0XlimUpdate(self, *fargs):
-		global mouseEvent
+		global lockedPlotEvent
 		if isLocked:
-			if mouseEvent == 0:
-				mouseEvent = mouseEvent+1
+			if lockedPlotEvent == 0:
+				lockedPlotEvent = 1
 				self.histAxPol0.set_xlim(self.spectAxPol0.get_xlim())
 			else:
-				mouseEvent = 0
+				lockedPlotEvent = 0
 
 	#Pol 1 - Update limits to spectrogram
 	def histPol1XlimUpdate(self, *fargs):
-		global mouseEvent
+		global lockedPlotEvent
 		if isLocked:
-			if mouseEvent == 0:
-				mouseEvent = mouseEvent+1
+			if lockedPlotEvent == 0:
+				lockedPlotEvent = 1
 				self.histAxPol1.set_xlim(self.spectAxPol1.get_xlim())
 			else:
-				mouseEvent = 0
+				lockedPlotEvent = 0
 
 	#Pol 0 - Update limits to frequency spectrum
 	def spectPol0XlimUpdate(self, *fargs):
-		global mouseEvent
+		global lockedPlotEvent
 		if isLocked:
-			if mouseEvent == 0:
-				mouseEvent = mouseEvent+1
+			if lockedPlotEvent == 0:
+				lockedPlotEvent = 1
 				self.spectAxPol0.set_xlim(self.histAxPol0.get_xlim())
 			else:
-				mouseEvent = 0
+				lockedPlotEvent = 0
 
 	#Pol 1 - Update limits to frequency spectrum
 	def spectPol1XlimUpdate(self, *fargs):
-		global mouseEvent
+		global lockedPlotEvent
 		if isLocked:
-			if mouseEvent == 0:
-				mouseEvent = mouseEvent+1
+			if lockedPlotEvent == 0:
+				lockedPlotEvent = 1
 				self.spectAxPol1.set_xlim(self.histAxPol1.get_xlim())
 			else:
-				mouseEvent = 0
+				lockedPlotEvent = 0
 
 
 	def _update(self, *fargs):
-		global displayAverage, loopCounter, pol0_has_been_initialised, pol1_has_been_initialised, displayAverage_pol1
+		global displayAverage, spectrumCounter, pol0_has_been_initialised, pol1_has_been_initialised, displayAverage_pol1
 
 		if is_non_zero_file('%s/pol0.scio' % cwd):
 			#Initialize spectrum plots if not done before
@@ -341,12 +325,12 @@ class SpectrogramCanvas(FigureCanvas):
 			arrayTemp = scio.read('%s/pol0.scio' % cwd)
 			self.num_rows, self.num_cols = np.shape(arrayTemp)
 
-			if self.init_num_rows != self.num_rows:
-				try:	#This is a slight modification to loop constantly loop through the spectrums in the pol0.scio file
-					self.pol0 = np.vstack([arrayTemp[loopCounter],self.pol0])
-				except IndexError:
-					loopCounter=0
-					self.pol0 = np.vstack([arrayTemp[loopCounter],self.pol0])
+			if self.init_num_rows != self.num_rows:	#Check if the number of rows has changed implying a new spectrum is present
+				try:
+					self.pol0 = np.vstack([arrayTemp[spectrumCounter],self.pol0])
+				except IndexError:	#Else the new number of spectrum is smaller than the previous because a new file is created ('scio' file has changed folders in the snapboard)
+					spectrumCounter=0
+					self.pol0 = np.vstack([arrayTemp[spectrumCounter],self.pol0])
 
 				self.init_num_rows = self.num_rows	#Update number of rows
 
@@ -358,24 +342,24 @@ class SpectrogramCanvas(FigureCanvas):
 				self.nu=((np.arange(self.waterfall.shape[1])+0.5)/(1.0*self.waterfall.shape[1]))*250; # frequency range in MHz
 				self.spectPlotPol0.set_data(self.waterfall)
 
-				self._extendYaxis(3.3, 'pol0')
+				self._extendYaxis(snapboard_capture_time, 'pol0')
 
-				#Update spectrum according to the 'display' update checkboxglobal displayAverage,horizontalslidersHaveBeenChanged
+				#Update spectrum according to the states of the interface
 				if displayAverage:
 					extentValue = self.spectPlotPol0.get_extent()
 					[top, bottom] = self.spectAxPol0.get_ylim()
-					if(extentValue[2] < top):
-						top = np.rint(extentValue[2]) #Used to move through all the previous data
-					bottom = np.rint(bottom/3.3)
-					top = np.rint(top/3.3)
-					self.average_data = np.mean(self.pol0[bottom:(top+1),:], axis = 0)
+					if(extentValue[2] < top):	#If the end of the waterfall is visible, set the top to the end of the spectrum
+						top = np.rint(extentValue[2])
+					bottom = np.rint(bottom/snapboard_capture_time)	#Scale back for array indexing
+					top = np.rint(top/snapboard_capture_time)	#Scale back for array indexing
+					self.average_data = np.mean(self.pol0[bottom:(top+1),:], axis = 0)	#Get average spectrum of data displayed on the waterfall plot
 					histData = np.log(self.average_data)
 					histData_dB = 10*np.log10(2**histData)
 					self.histPlotPol0.set_ydata(histData_dB)
 				else:
-					self.horizontalMarker = spectrumNumberScale
-					self.spectrumMarker = self.horizontalMarker/3.3
-					self.hline.set_ydata(self.horizontalMarker)
+					self.horizontalMarker = spectrumNumberScale	#Get value from the UI slider
+					self.spectrumMarker = self.horizontalMarker/snapboard_capture_time	#Scale down by 'snapboard_capture_time' for array indexing
+					self.hline.set_ydata(self.horizontalMarker)	#Set black marker at location
 					spectrumMarkerRounded = np.rint(self.spectrumMarker)
 					try:
 						self.data = self.pol0[spectrumMarkerRounded]
@@ -397,12 +381,12 @@ class SpectrogramCanvas(FigureCanvas):
 			arrayTemp = scio.read('%s/pol1.scio' % cwd)
 			self.num_rows_pol1, self.num_cols_pol1 = np.shape(arrayTemp)
 
-			if self.init_num_rows_pol1 != self.num_rows_pol1:
-				try:	#This is a slight modification to loop constantly loop through the spectrums in the pol1.scio file
-					self.pol1 = np.vstack([arrayTemp[loopCounter],self.pol1])
-				except IndexError:
-					loopCounter=0
-					self.pol1 = np.vstack([arrayTemp[loopCounter],self.pol1])
+			if self.init_num_rows_pol1 != self.num_rows_pol1:	#Check if the number of rows has changed implying a new spectrum is present
+				try:
+					self.pol1 = np.vstack([arrayTemp[spectrumCounter],self.pol1])
+				except IndexError:	#Else the new number of spectrum is smaller than the previous because a new file is created ('scio' file has changed folders in the snapboard)
+					spectrumCounter=0
+					self.pol1 = np.vstack([arrayTemp[spectrumCounter],self.pol1])
 
 				self.init_num_rows_pol1 = self.num_rows_pol1	#Update number of rows
 
@@ -412,27 +396,26 @@ class SpectrogramCanvas(FigureCanvas):
 				self.std_pol1 = np.std(self.waterfall_pol1)
 				self.vmin_pol1 , self.vmax_pol1 = (self.median_pol1-self.std_pol1) , (self.median_pol1+self.std_pol1)
 				self.nu_pol1=((np.arange(self.waterfall_pol1.shape[1])+0.5)/(1.0*self.waterfall_pol1.shape[1]))*250; # frequency range in MHz
-				#self.ymin, self.ymax = self.spectAxPol0.get_ylim()
 				self.spectPlotPol1.set_data(self.waterfall_pol1)
 
-				self._extendYaxis(3.3, 'pol1')
+				self._extendYaxis(snapboard_capture_time, 'pol1')
 
-				#Update spectrum according to the 'display' update checkboxglobal displayAverage,horizontalslidersHaveBeenChanged
+				#Update spectrum according to the states of the interface
 				if displayAverage_pol1:
 					extentValue = self.spectPlotPol1.get_extent()
 					[top, bottom] = self.spectAxPol1.get_ylim()
-					if(extentValue[2] < top):
-						top = np.rint(extentValue[2]) #Used to move through all the previous data
-					bottom = np.rint(bottom/3.3)
-					top = np.rint(top/3.3)
-					self.average_data_pol1 = np.mean(self.pol1[bottom:(top+1),:], axis = 0)
+					if(extentValue[2] < top):	#If the end of the waterfall is visible, set the top to the end of the spectrum
+						top = np.rint(extentValue[2])
+					bottom = np.rint(bottom/snapboard_capture_time)	#Scale back for array indexing
+					top = np.rint(top/snapboard_capture_time)	#Scale back for array indexing
+					self.average_data_pol1 = np.mean(self.pol1[bottom:(top+1),:], axis = 0)	#Get average spectrum of data displayed on the waterfall plot
 					histData = np.log(self.average_data_pol1)
 					histData_dB = 10*np.log10(2**histData)
 					self.histPlotPol1.set_ydata(histData_dB)
 				else:
-					self.horizontalMarker_pol1 = spectrumNumberScale_pol1
-					self.spectrumMarker_pol1 = self.horizontalMarker_pol1/3.3
-					self.hline_pol1.set_ydata(self.horizontalMarker_pol1)
+					self.horizontalMarker_pol1 = spectrumNumberScale_pol1	#Get value from the UI slider
+					self.spectrumMarker_pol1 = self.horizontalMarker_pol1/snapboard_capture_time	#Scale down by 'snapboard_capture_time' for array indexing
+					self.hline_pol1.set_ydata(self.horizontalMarker_pol1)	#Set black marker at location
 					spectrumMarkerRounded = np.rint(self.spectrumMarker_pol1)
 					try:
 						self.data_pol1 = self.pol1[spectrumMarkerRounded]
@@ -442,7 +425,7 @@ class SpectrogramCanvas(FigureCanvas):
 					histData_dB = 10*np.log10(2**histData)
 					self.histPlotPol1.set_ydata(histData_dB)
 
-		loopCounter = loopCounter + 1	#Move to the next spectrum
+		spectrumCounter = spectrumCounter + 1	#Move to the next spectrum
 
 		return (self.histPlotPol0, self.spectPlotPol0, self.histPlotPol1, self.spectPlotPol1)
 
@@ -454,11 +437,11 @@ class SpectrogramCanvas(FigureCanvas):
 		slidersHaveBeenChanged_pol1, horizontalslidersHaveBeenChanged_pol1,displayAverage_pol1
 		#Pol 0
 		if slidersHaveBeenChanged:
-			self.spectPlotPol0.set_data(self.waterfall)
+			self.spectPlotPol0.set_data(self.waterfall)	#Update frequency spectrum to display 'average' spectra or selected spectra
 			slidersHaveBeenChanged=False
 		if horizontalslidersHaveBeenChanged and not displayAverage:
-			self.horizontalMarker = spectrumNumberScale
-			self.spectrumMarker = (self.horizontalMarker/(self.num_rows*3.3))*(self.num_rows-1)
+			self.horizontalMarker = spectrumNumberScale	#Get value from UI slider
+			self.spectrumMarker = (self.horizontalMarker/(self.num_rows*snapboard_capture_time))*(self.num_rows-1)	#Scale the UI slider to the index of the array in pol0
 			spectrumMarkerRounded = np.rint(self.spectrumMarker)
 			self.hline.set_ydata(self.horizontalMarker)
 			try:
@@ -471,11 +454,11 @@ class SpectrogramCanvas(FigureCanvas):
 			horizontalslidersHaveBeenChanged = False
 		#Pol 1
 		if slidersHaveBeenChanged_pol1:
-			self.spectPlotPol1.set_data(self.waterfall_pol1)
+			self.spectPlotPol1.set_data(self.waterfall_pol1)	#Update frequency spectrum to display 'average' spectra or selected spectra
 			slidersHaveBeenChanged_pol1=False
 		if horizontalslidersHaveBeenChanged_pol1 and not displayAverage_pol1:
-			self.horizontalMarker_pol1 = spectrumNumberScale_pol1
-			self.spectrumMarker_pol1 = (self.horizontalMarker_pol1/(self.num_rows_pol1*3.3))*(self.num_rows_pol1-1)
+			self.horizontalMarker_pol1 = spectrumNumberScale_pol1	#Get value from UI slider
+			self.spectrumMarker_pol1 = (self.horizontalMarker_pol1/(self.num_rows_pol1*snapboard_capture_time))*(self.num_rows_pol1-1)	#Scale the UI slider to the index of the array in pol1
 			spectrumMarkerRounded_pol1 = np.rint(self.spectrumMarker_pol1)
 			self.hline_pol1.set_ydata(self.horizontalMarker_pol1)
 			try:
@@ -493,14 +476,14 @@ class SpectrogramCanvas(FigureCanvas):
 		"""Adjust low and high intensity limits for histogram and spectrum axes."""
 		if pol=='pol0':
 			#Convert values to time format
-			daysZoom = zoomInit//86399
-			hoursZoom = zoomInit//3599
-			minutesZoom = zoomInit//59
-			daysScroll = scrollInit//86399
-			hoursScroll = scrollInit//3599
-			minutesScroll = scrollInit//59
+			daysZoom = sampleTimeValue//86399
+			hoursZoom = sampleTimeValue//3599
+			minutesZoom = sampleTimeValue//59
+			daysScroll = timeRegionValue//86399
+			hoursScroll = timeRegionValue//3599
+			minutesScroll = timeRegionValue//59
 
-			self.spectAxPol0.set_ylim(top=scrollInit, bottom=scrollInit+zoomInit)
+			self.spectAxPol0.set_ylim(top=timeRegionValue, bottom=timeRegionValue+sampleTimeValue)	#Update waterfall limits according to UI values
 			self.ymin, self.ymax = self.spectAxPol0.get_ylim()	#Update min and max values
 
 			#Display numbers in time format
@@ -520,14 +503,14 @@ class SpectrogramCanvas(FigureCanvas):
 
 		if pol=='pol1':
 			#Convert values to time format
-			daysZoom = zoomInit_pol1//86399
-			hoursZoom = zoomInit_pol1//3599
-			minutesZoom = zoomInit_pol1//59
-			daysScroll = scrollInit_pol1//86399
-			hoursScroll = scrollInit_pol1//3599
-			minutesScroll = scrollInit_pol1//59
+			daysZoom = sampleTimeValue_pol1//86399
+			hoursZoom = sampleTimeValue_pol1//3599
+			minutesZoom = sampleTimeValue_pol1//59
+			daysScroll = timeRegionValue_pol1//86399
+			hoursScroll = timeRegionValue_pol1//3599
+			minutesScroll = timeRegionValue_pol1//59
 
-			self.spectAxPol1.set_ylim(top=scrollInit_pol1, bottom=scrollInit_pol1+zoomInit_pol1)
+			self.spectAxPol1.set_ylim(top=timeRegionValue_pol1, bottom=timeRegionValue_pol1+sampleTimeValue_pol1)	#Update waterfall limits according to UI values
 			self.ymin_pol1, self.ymax_pol1 = self.spectAxPol1.get_ylim()	#Update min and max values
 
 			#Display numbers in time format
@@ -551,32 +534,30 @@ class SpectrogramCanvas(FigureCanvas):
 		if pol=='pol0':
 			extended = self.spectPlotPol0.get_extent()
 			extended = extended[2]+value	#Get the bottom value where the data is squeezed
-			if extended <= (maximumTime+3.3):
+			if extended <= (maximumTime+snapboard_capture_time):	#If end of the spectrum is visible, stretch the data to the end of the spectrum and not the bottom of the axes
 				self.spectPlotPol0.set_extent([0,250,extended,0])
 			else:
-				excessRows = int((extended - maximumTime)//3.3) #Number of rows outside the buffer time
+				excessRows = int((extended - maximumTime)//snapboard_capture_time) #Number of rows outside the buffer time
 				self.pol0 = np.delete(self.pol0, slice(self.num_rows-excessRows,self.num_rows), axis=0) #Delete the array variables outside the buffer time
 				if (excessRows > 1):
-					self.spectPlotPol0.set_extent([0,250,extended-3.3*excessRows,0])
+					self.spectPlotPol0.set_extent([0,250,extended-snapboard_capture_time*excessRows,0])
 		if pol=='pol1':
 			extended = self.spectPlotPol1.get_extent()
 			extended = extended[2]+value	#Get the bottom value where the data is squeezed
-			if extended <= (maximumTime+3.3):
+			if extended <= (maximumTime+snapboard_capture_time):	#If end of the spectrum is visible, stretch the data to the end of the spectrum and not the bottom of the axes
 				self.spectPlotPol1.set_extent([0,250,extended,0])
 			else:
-				excessRows = int((extended - maximumTime)//3.3) #Number of rows outside the buffer time
+				excessRows = int((extended - maximumTime)//snapboard_capture_time) #Number of rows outside the buffer time
 				self.pol1 = np.delete(self.pol1, slice(self.num_rows_pol1-excessRows,self.num_rows_pol1), axis=0)	#Delete the array variables outside the buffer time
 				if (excessRows > 1):
-					self.spectPlotPol1.set_extent([0,250,extended-3.3*excessRows,0])
+					self.spectPlotPol1.set_extent([0,250,extended-snapboard_capture_time*excessRows,0])
 
 
 
 
 class MainWindow(QtGui.QMainWindow):
 	def __init__(self):
-		"""Set up the main window.
-		   Devices should be a list of items that implement the SpectrogramDevice interface.
-		"""
+		"""Set up the main window. This is the GUI components"""
 		super(MainWindow, self).__init__()
 		self.openDevice = None
 		main = QtGui.QWidget()
@@ -586,7 +567,7 @@ class MainWindow(QtGui.QMainWindow):
 		self.setCentralWidget(main)
 		self.status = self.statusBar()
 		self.setGeometry(10,10,900,600)
-		self.setWindowTitle('PRIZM Real Time Spectrum Analyser (RTSA)')
+		self.setWindowTitle('PRIZM 100MHz Antenna')
 		self.show()
 
 	def updateStatus(self, message=''):
@@ -621,7 +602,6 @@ class MainWindow(QtGui.QMainWindow):
 		maximumTime = (86400*self.spinBoxDay.value()) + (3600*self.spinBoxHour.value()) + (60*self.spinBoxMinute.value())
 
 		self.spectrogram = SpectrogramCanvas(self)
-
 		self.navLocked = QtGui.QCheckBox("Lock Plot")
 		self.navLocked.setChecked(False)
 		self.navLocked.toggled.connect(self.Lockedcheckbox_toggled)
@@ -650,7 +630,7 @@ class MainWindow(QtGui.QMainWindow):
 		layout.addWidget(self.spectrogram)
 
 
-		if not (pol0_has_been_initialised or pol1_has_been_initialised):
+		if not (pol0_has_been_initialised or pol1_has_been_initialised):	#If any of the 'scio' files are missing disable the UI
 			self.bufferControl.setEnabled(False)
 			self.polController.setEnabled(False)
 			self.navigationControl.setEnabled(False)
@@ -659,7 +639,7 @@ class MainWindow(QtGui.QMainWindow):
 		return layout
 
 	def _enableUI(self, value):
-		if pol0_has_been_initialised and pol1_has_been_initialised:
+		if pol0_has_been_initialised and pol1_has_been_initialised:	#Enable the UI when the 'scio' files are present
 			try:
 				self.bufferControl.setEnabled(True)
 				self.polController.setEnabled(True)
@@ -683,29 +663,29 @@ class MainWindow(QtGui.QMainWindow):
 		SpectrumSlider_pol1 = QtGui.QSlider(QtCore.Qt.Orientation.Horizontal)#Used to move the marker through the visible waterfall plot - Pol 1
 
 		#Pol 0
-		ZoomSlider.setRange(zoomInit, maximumTime)
-		ZoomSlider.setValue(zoomInit)
+		ZoomSlider.setRange(sampleTimeValue, maximumTime)
+		ZoomSlider.setValue(sampleTimeValue)
 		ZoomSlider.valueChanged.connect(lambda: self._sliderChanged('pol0'))
 		#Pol 1
-		ZoomSlider_pol1.setRange(zoomInit, maximumTime)
-		ZoomSlider_pol1.setValue(zoomInit)
+		ZoomSlider_pol1.setRange(sampleTimeValue, maximumTime)
+		ZoomSlider_pol1.setValue(sampleTimeValue)
 		ZoomSlider_pol1.valueChanged.connect(lambda: self._sliderChanged('pol1'))
 
 		#Pol 0
-		ScrollSlider.setRange(scrollInit, maximumTime)
-		ScrollSlider.setValue(scrollInit)
+		ScrollSlider.setRange(timeRegionValue, maximumTime)
+		ScrollSlider.setValue(timeRegionValue)
 		ScrollSlider.valueChanged.connect(lambda: self._sliderChanged('pol0'))
 		#Pol 1
-		ScrollSlider_pol1.setRange(scrollInit, maximumTime)
-		ScrollSlider_pol1.setValue(scrollInit)
+		ScrollSlider_pol1.setRange(timeRegionValue, maximumTime)
+		ScrollSlider_pol1.setValue(timeRegionValue)
 		ScrollSlider_pol1.valueChanged.connect(lambda: self._sliderChanged('pol1'))
 
 		#Pol 0
-		SpectrumSlider.setRange(scrollInit,scrollInit+zoomInit)
+		SpectrumSlider.setRange(timeRegionValue,timeRegionValue+sampleTimeValue)
 		SpectrumSlider.setValue(0)
 		SpectrumSlider.valueChanged.connect(lambda: self._spectrumChanged('pol0'))
 		#Pol 1
-		SpectrumSlider_pol1.setRange(scrollInit,scrollInit+zoomInit)
+		SpectrumSlider_pol1.setRange(timeRegionValue,timeRegionValue+sampleTimeValue)
 		SpectrumSlider_pol1.setValue(0)
 		SpectrumSlider_pol1.valueChanged.connect(lambda: self._spectrumChanged('pol1'))
 
@@ -788,13 +768,13 @@ class MainWindow(QtGui.QMainWindow):
 		#Pol 0
 		graphs = QtGui.QGroupBox('Pol 0 - Graphs')
 		graphs.setLayout(QtGui.QGridLayout())
-		graphs.layout().addWidget(QtGui.QLabel('Time Range:'), 0, 0)
+		graphs.layout().addWidget(QtGui.QLabel('Sample Time:'), 0, 0)
 		graphs.layout().addWidget(self.graphZoomSlider, 1, 0, 1, 5)
 		graphs.layout().addWidget(self.lowValue, 2, 0)
 		graphs.layout().addWidget(self.spinBoxDayZoom, 2, 2, 3)
 		graphs.layout().addWidget(self.spinBoxHrsZoom, 2, 3, 4)
 		graphs.layout().addWidget(self.spinBoxMinZoom, 2, 4, 5)
-		graphs.layout().addWidget(QtGui.QLabel('Time Shift:'), 3, 0)
+		graphs.layout().addWidget(QtGui.QLabel('Time Region:'), 3, 0)
 		graphs.layout().addWidget(QtGui.QLabel('Days:'), 3, 2)
 		graphs.layout().addWidget(QtGui.QLabel('Hours:'), 3, 3, 4)
 		graphs.layout().addWidget(QtGui.QLabel('Minutes:'), 3, 4)
@@ -803,7 +783,7 @@ class MainWindow(QtGui.QMainWindow):
 		graphs.layout().addWidget(self.spinBoxDayScale, 5, 2, 3)
 		graphs.layout().addWidget(self.spinBoxHrsScale, 5, 3, 4)
 		graphs.layout().addWidget(self.spinBoxMinScale, 5, 4, 5)
-		graphs.layout().addWidget(QtGui.QLabel('Select Spectrum:'), 6, 0)
+		graphs.layout().addWidget(QtGui.QLabel('Select Individual Spectrum:'), 6, 0)
 		graphs.layout().addWidget(QtGui.QLabel('Days:'), 6, 2)
 		graphs.layout().addWidget(QtGui.QLabel('Hours:'), 6, 3, 4)
 		graphs.layout().addWidget(QtGui.QLabel('Minutes:'), 6, 4)
@@ -814,13 +794,13 @@ class MainWindow(QtGui.QMainWindow):
 		#Pol 1
 		graphs_pol1 = QtGui.QGroupBox('Pol 1 - Graphs')
 		graphs_pol1.setLayout(QtGui.QGridLayout())
-		graphs_pol1.layout().addWidget(QtGui.QLabel('Time Range:'), 0, 0)
+		graphs_pol1.layout().addWidget(QtGui.QLabel('Sample Time:'), 0, 0)
 		graphs_pol1.layout().addWidget(self.graphZoomSlider_pol1, 1, 0, 1, 5)
 		graphs_pol1.layout().addWidget(self.lowValue_pol1, 2, 0)
 		graphs_pol1.layout().addWidget(self.spinBoxDayZoom_pol1, 2, 2, 3)
 		graphs_pol1.layout().addWidget(self.spinBoxHrsZoom_pol1, 2, 3, 4)
 		graphs_pol1.layout().addWidget(self.spinBoxMinZoom_pol1, 2, 4, 5)
-		graphs_pol1.layout().addWidget(QtGui.QLabel('Time Shift:'), 3, 0)
+		graphs_pol1.layout().addWidget(QtGui.QLabel('Time Region:'), 3, 0)
 		graphs_pol1.layout().addWidget(QtGui.QLabel('Days:'), 3, 2)
 		graphs_pol1.layout().addWidget(QtGui.QLabel('Hours:'), 3, 3, 4)
 		graphs_pol1.layout().addWidget(QtGui.QLabel('Minutes:'), 3, 4)
@@ -829,7 +809,7 @@ class MainWindow(QtGui.QMainWindow):
 		graphs_pol1.layout().addWidget(self.spinBoxDayScale_pol1, 5, 2, 3)
 		graphs_pol1.layout().addWidget(self.spinBoxHrsScale_pol1, 5, 3, 4)
 		graphs_pol1.layout().addWidget(self.spinBoxMinScale_pol1, 5, 4, 5)
-		graphs_pol1.layout().addWidget(QtGui.QLabel('Select Spectrum:'), 6, 0)
+		graphs_pol1.layout().addWidget(QtGui.QLabel('Select Individual Spectrum:'), 6, 0)
 		graphs_pol1.layout().addWidget(QtGui.QLabel('Days:'), 6, 2)
 		graphs_pol1.layout().addWidget(QtGui.QLabel('Hours:'), 6, 3, 4)
 		graphs_pol1.layout().addWidget(QtGui.QLabel('Minutes:'), 6, 4)
@@ -837,196 +817,200 @@ class MainWindow(QtGui.QMainWindow):
 		graphs_pol1.layout().addWidget(QtGui.QLabel('Frequency Spectrum:'), 9, 0)
 		graphs_pol1.layout().addWidget(self.checkboxAverage_pol1, 10, 0, 1, 2)
 
+		self.secondsToTimePol0()	#Set time text for pol0
+		self.secondsToTimePol1()	#Set time text for pol1
+
 		tabsGraphsPols	= QtGui.QTabWidget()
 		tabsGraphsPols.addTab(graphs,"Pol 0")
 		tabsGraphsPols.addTab(graphs_pol1,"Pol 1")
+
 
 		return (tabsGraphsPols)
 
 	def secondsToTimePol0(self, *fargs):
 		# Update UI to represent new slider values
-		if (int(time.strftime("%d",time.gmtime(zoomInit)))-1) == 0:
-			self.lowValue.setText(time.strftime("%H:%M:%S", time.gmtime(zoomInit)))
+		if (int(time.strftime("%d",time.gmtime(sampleTimeValue)))-1) == 0:
+			self.lowValue.setText(time.strftime("%H:%M:%S", time.gmtime(sampleTimeValue)))
 		else:
-			dayNo = int(time.strftime("%d",time.gmtime(zoomInit)))-1
-			self.lowValue.setText(str(dayNo)+' day - '+time.strftime("%H:%M:%S", time.gmtime(zoomInit)))
-		if (int(time.strftime("%d",time.gmtime(scrollInit)))-1) == 0:
-			self.highValue.setText(time.strftime("%H:%M:%S", time.gmtime(scrollInit))+' ago')
+			dayNo = int(time.strftime("%d",time.gmtime(sampleTimeValue)))-1
+			self.lowValue.setText(str(dayNo)+' day - '+time.strftime("%H:%M:%S", time.gmtime(sampleTimeValue)))
+		if (int(time.strftime("%d",time.gmtime(timeRegionValue)))-1) == 0:
+			self.highValue.setText(time.strftime("%H:%M:%S", time.gmtime(timeRegionValue))+' ago')
 		else:
-			dayNo = int(time.strftime("%d",time.gmtime(scrollInit)))-1
-			self.highValue.setText(str(dayNo)+' day and '+time.strftime("%H:%M:%S", time.gmtime(scrollInit))+' ago')
+			dayNo = int(time.strftime("%d",time.gmtime(timeRegionValue)))-1
+			self.highValue.setText(str(dayNo)+' day and '+time.strftime("%H:%M:%S", time.gmtime(timeRegionValue))+' ago')
 
 	def secondsToTimePol1(self, *fargs):
 		# Update UI to represent new slider values
-		if (int(time.strftime("%d",time.gmtime(zoomInit_pol1)))-1) == 0:
-			self.lowValue_pol1.setText(time.strftime("%H:%M:%S", time.gmtime(zoomInit_pol1)))
+		if (int(time.strftime("%d",time.gmtime(sampleTimeValue_pol1)))-1) == 0:
+			self.lowValue_pol1.setText(time.strftime("%H:%M:%S", time.gmtime(sampleTimeValue_pol1)))
 		else:
-			dayNo = int(time.strftime("%d",time.gmtime(zoomInit_pol1)))-1
-			self.lowValue_pol1.setText(str(dayNo)+' day - '+time.strftime("%H:%M:%S", time.gmtime(zoomInit_pol1)))
-		if (int(time.strftime("%d",time.gmtime(scrollInit_pol1)))-1) == 0:
-			self.highValue_pol1.setText(time.strftime("%H:%M:%S", time.gmtime(scrollInit_pol1))+' ago')
+			dayNo = int(time.strftime("%d",time.gmtime(sampleTimeValue_pol1)))-1
+			self.lowValue_pol1.setText(str(dayNo)+' day - '+time.strftime("%H:%M:%S", time.gmtime(sampleTimeValue_pol1)))
+		if (int(time.strftime("%d",time.gmtime(timeRegionValue_pol1)))-1) == 0:
+			self.highValue_pol1.setText(time.strftime("%H:%M:%S", time.gmtime(timeRegionValue_pol1))+' ago')
 		else:
-			dayNo = int(time.strftime("%d",time.gmtime(scrollInit_pol1)))-1
-			self.highValue_pol1.setText(str(dayNo)+' day and '+time.strftime("%H:%M:%S", time.gmtime(scrollInit_pol1))+' ago')
+			dayNo = int(time.strftime("%d",time.gmtime(timeRegionValue_pol1)))-1
+			self.highValue_pol1.setText(str(dayNo)+' day and '+time.strftime("%H:%M:%S", time.gmtime(timeRegionValue_pol1))+' ago')
 
 
 	def _sliderChanged(self, pol):
-		global zoomInit, scrollInit, slidersHaveBeenChanged, zoomInit_pol1, scrollInit_pol1, slidersHaveBeenChanged_pol1
+		global sampleTimeValue, timeRegionValue, slidersHaveBeenChanged, sampleTimeValue_pol1, timeRegionValue_pol1, slidersHaveBeenChanged_pol1
 		if pol=='pol0':
 			if slidersHaveBeenChanged==False:	#Check if variables haven't already been processed by the spinboxes
 				#Keep copy of old values incase new values exceed buffer time
-				tempZoom = zoomInit
-				tempScroll = scrollInit
+				tempZoom = sampleTimeValue
+				tempScroll = timeRegionValue
 				#Update variables to new values
-				zoomInit=self.graphZoomSlider.value()
-				scrollInit=self.graphScrollSlider.value()
+				sampleTimeValue=self.graphZoomSlider.value()
+				timeRegionValue=self.graphScrollSlider.value()
 				#Check if new values exceed maximum buffer time
-				if (zoomInit > maximumTime):
-					zoomInit = tempZoom
-				if (scrollInit > maximumTime):
-					scrollInit = tempScroll
+				if (sampleTimeValue > maximumTime):
+					sampleTimeValue = tempZoom
+				if (timeRegionValue > maximumTime):
+					timeRegionValue = tempScroll
 
-				self.spectrumSlider.setRange(scrollInit,scrollInit+zoomInit) #Re-adjust range of spectrum slider to cover the visible waterfall spectrum
+				self.spectrumSlider.setRange(timeRegionValue,timeRegionValue+sampleTimeValue) #Re-adjust range of spectrum slider to cover the visible waterfall spectrum
 
 				lastTimeValue = self.spectrogram.spectPlotPol0.get_extent()
 				[top, bottom] = self.spectrogram.spectAxPol0.get_ylim()	#Get bottom stretch of the spectrogram data
 
 				if (lastTimeValue[2]<bottom):	#Check if end of data is visible in spectrogram
-					self.spectrumSlider.setRange(scrollInit,np.rint(lastTimeValue[2])) 	#Prevent the horizontal slider from exceeding the end of data
+					self.spectrumSlider.setRange(timeRegionValue,np.rint(lastTimeValue[2])) 	#Prevent the horizontal slider from exceeding the end of data
 
 				self.secondsToTimePol0()
 
-				slidersHaveBeenChanged=True
+				slidersHaveBeenChanged=True	#Update state
 
 				# Adjust chart UI with new slider values.
-				self.spinBoxDayZoom.setValue(time.gmtime(zoomInit).tm_yday-1)
-				self.spinBoxHrsZoom.setValue(time.gmtime(zoomInit).tm_hour)
-				self.spinBoxMinZoom.setValue(time.gmtime(zoomInit).tm_min)
-				self.spinBoxDayScale.setValue(time.gmtime(scrollInit).tm_yday-1)
-				self.spinBoxHrsScale.setValue(time.gmtime(scrollInit).tm_hour)
-				self.spinBoxMinScale.setValue(time.gmtime(scrollInit).tm_min)
+				self.spinBoxDayZoom.setValue(time.gmtime(sampleTimeValue).tm_yday-1)
+				self.spinBoxHrsZoom.setValue(time.gmtime(sampleTimeValue).tm_hour)
+				self.spinBoxMinZoom.setValue(time.gmtime(sampleTimeValue).tm_min)
+				self.spinBoxDayScale.setValue(time.gmtime(timeRegionValue).tm_yday-1)
+				self.spinBoxHrsScale.setValue(time.gmtime(timeRegionValue).tm_hour)
+				self.spinBoxMinScale.setValue(time.gmtime(timeRegionValue).tm_min)
 
 				self.spectrogram.updateCaptureRange('pol0')
 
 		if pol=='pol1':
 			if slidersHaveBeenChanged_pol1==False:	#Check if variables haven't already been processed by the spinboxes
 				#Keep copy of old values incase new values exceed buffer time
-				tempZoom = zoomInit_pol1
-				tempScroll = scrollInit_pol1
+				tempZoom = sampleTimeValue_pol1
+				tempScroll = timeRegionValue_pol1
 				#Update variables to new values
-				zoomInit_pol1=self.graphZoomSlider_pol1.value()
-				scrollInit_pol1=self.graphScrollSlider_pol1.value()
+				sampleTimeValue_pol1=self.graphZoomSlider_pol1.value()
+				timeRegionValue_pol1=self.graphScrollSlider_pol1.value()
 				#Check if new values exceed maximum buffer time
-				if (zoomInit_pol1 > maximumTime):
-					zoomInit_pol1 = tempZoom
-				if (scrollInit_pol1 > maximumTime):
-					scrollInit_pol1 = tempScroll
+				if (sampleTimeValue_pol1 > maximumTime):
+					sampleTimeValue_pol1 = tempZoom
+				if (timeRegionValue_pol1 > maximumTime):
+					timeRegionValue_pol1 = tempScroll
 
-				self.spectrumSlider_pol1.setRange(scrollInit_pol1,scrollInit_pol1+zoomInit_pol1) #Re-adjust range of spectrum slider to cover the visible waterfall spectrum
+				self.spectrumSlider_pol1.setRange(timeRegionValue_pol1,timeRegionValue_pol1+sampleTimeValue_pol1) #Re-adjust range of spectrum slider to cover the visible waterfall spectrum
 
 				lastTimeValue = self.spectrogram.spectPlotPol1.get_extent()
 				[top, bottom] = self.spectrogram.spectAxPol1.get_ylim()	#Get bottom stretch of the spectrogram data
 
 				if (lastTimeValue[2]<bottom):	#Check if end of data is visible in spectrogram
-					self.spectrumSlider_pol1.setRange(scrollInit_pol1,np.rint(lastTimeValue[2]))#Prevent the horizontal slider from exceeding the end of data
+					self.spectrumSlider_pol1.setRange(timeRegionValue_pol1,np.rint(lastTimeValue[2]))#Prevent the horizontal slider from exceeding the end of data
 
 				self.secondsToTimePol1()
 
-				slidersHaveBeenChanged_pol1=True
+				slidersHaveBeenChanged_pol1=True	#Update state
 
 				# Adjust chart UI with new slider values.
-				self.spinBoxDayZoom_pol1.setValue(time.gmtime(zoomInit_pol1).tm_yday-1)
-				self.spinBoxHrsZoom_pol1.setValue(time.gmtime(zoomInit_pol1).tm_hour)
-				self.spinBoxMinZoom_pol1.setValue(time.gmtime(zoomInit_pol1).tm_min)
-				self.spinBoxDayScale_pol1.setValue(time.gmtime(scrollInit_pol1).tm_yday-1)
-				self.spinBoxHrsScale_pol1.setValue(time.gmtime(scrollInit_pol1).tm_hour)
-				self.spinBoxMinScale_pol1.setValue(time.gmtime(scrollInit_pol1).tm_min)
+				self.spinBoxDayZoom_pol1.setValue(time.gmtime(sampleTimeValue_pol1).tm_yday-1)
+				self.spinBoxHrsZoom_pol1.setValue(time.gmtime(sampleTimeValue_pol1).tm_hour)
+				self.spinBoxMinZoom_pol1.setValue(time.gmtime(sampleTimeValue_pol1).tm_min)
+				self.spinBoxDayScale_pol1.setValue(time.gmtime(timeRegionValue_pol1).tm_yday-1)
+				self.spinBoxHrsScale_pol1.setValue(time.gmtime(timeRegionValue_pol1).tm_hour)
+				self.spinBoxMinScale_pol1.setValue(time.gmtime(timeRegionValue_pol1).tm_min)
 
 				self.spectrogram.updateCaptureRange('pol1')
 
 
 	def _spinChanged(self, pol):
-		global zoomInit, scrollInit, slidersHaveBeenChanged, zoomInit_pol1, scrollInit_pol1, slidersHaveBeenChanged_pol1
+		global sampleTimeValue, timeRegionValue, slidersHaveBeenChanged, sampleTimeValue_pol1, timeRegionValue_pol1, slidersHaveBeenChanged_pol1
 
 		if pol=='pol0':
 			if slidersHaveBeenChanged==False:	#Check if variables haven't already been processed by the spinboxes
 				#Keep copy of old values incase new values exceed buffer time
-				tempZoom = zoomInit
-				tempScroll = scrollInit
+				tempZoom = sampleTimeValue
+				tempScroll = timeRegionValue
 				#Update variables to new values
-				zoomInit=self.spinBoxDayZoom.value()*86400+self.spinBoxHrsZoom.value()*3600+self.spinBoxMinZoom.value()*60
-				scrollInit=self.spinBoxDayScale.value()*86400+self.spinBoxHrsScale.value()*3600+self.spinBoxMinScale.value()*60
+				sampleTimeValue=self.spinBoxDayZoom.value()*86400+self.spinBoxHrsZoom.value()*3600+self.spinBoxMinZoom.value()*60
+				timeRegionValue=self.spinBoxDayScale.value()*86400+self.spinBoxHrsScale.value()*3600+self.spinBoxMinScale.value()*60
 				#Check if new values exceed maximum buffer time
-				if (zoomInit > maximumTime):
-					zoomInit = tempZoom
-					self.spinBoxDayZoom.setValue(time.gmtime(zoomInit).tm_yday-1)
-					self.spinBoxHrsZoom.setValue(time.gmtime(zoomInit).tm_hour)
-					self.spinBoxMinZoom.setValue(time.gmtime(zoomInit).tm_min)
-				if (scrollInit > maximumTime):
-					scrollInit = tempScroll
-					self.spinBoxDayScale.setValue(time.gmtime(scrollInit).tm_yday-1)
-					self.spinBoxHrsScale.setValue(time.gmtime(scrollInit).tm_hour)
-					self.spinBoxMinScale.setValue(time.gmtime(scrollInit).tm_min)
+				if (sampleTimeValue > maximumTime):
+					sampleTimeValue = tempZoom
+					self.spinBoxDayZoom.setValue(time.gmtime(sampleTimeValue).tm_yday-1)
+					self.spinBoxHrsZoom.setValue(time.gmtime(sampleTimeValue).tm_hour)
+					self.spinBoxMinZoom.setValue(time.gmtime(sampleTimeValue).tm_min)
+				if (timeRegionValue > maximumTime):
+					timeRegionValue = tempScroll
+					self.spinBoxDayScale.setValue(time.gmtime(timeRegionValue).tm_yday-1)
+					self.spinBoxHrsScale.setValue(time.gmtime(timeRegionValue).tm_hour)
+					self.spinBoxMinScale.setValue(time.gmtime(timeRegionValue).tm_min)
 
-				if zoomInit==0:
-					zoomInit = 5
+				if sampleTimeValue<5:	#Set minumum range to 5 seconds not below 5
+					sampleTimeValue = 5
 
-				self.spectrumSlider.setRange(scrollInit,scrollInit+zoomInit) #Re-adjust range of spectrum slider to cover the visible waterfall spectrum
+				self.spectrumSlider.setRange(timeRegionValue,timeRegionValue+sampleTimeValue) #Re-adjust range of spectrum slider to cover the visible waterfall spectrum
 
 				lastTimeValue = self.spectrogram.spectPlotPol0.get_extent()
 				[top, bottom] = self.spectrogram.spectAxPol0.get_ylim()#Get bottom stretch of the spectrogram data
 
 				if (lastTimeValue[2]<bottom):#Check if end of data is visible in spectrogram
-					self.spectrumSlider.setRange(scrollInit,np.rint(lastTimeValue[2])) #Prevent the horizontal slider from exceeding the end of data
+					self.spectrumSlider.setRange(timeRegionValue,np.rint(lastTimeValue[2])) #Prevent the horizontal slider from exceeding the end of data
 
 				self.secondsToTimePol0()
 
-				slidersHaveBeenChanged=True
+				slidersHaveBeenChanged=True	#Update state
 
 				# Adjust chart UI with new slider values.
-				self.graphZoomSlider.setValue(zoomInit)
-				self.graphScrollSlider.setValue(scrollInit)
+				self.graphZoomSlider.setValue(sampleTimeValue)
+				self.graphScrollSlider.setValue(timeRegionValue)
 
 				self.spectrogram.updateCaptureRange('pol0')
 
 		if pol=='pol1':
 			if slidersHaveBeenChanged_pol1==False:	#Check if variables haven't already been processed by the spinboxes
 				#Keep copy of old values incase new values exceed buffer time
-				tempZoom = zoomInit_pol1
-				tempScroll = scrollInit_pol1
+				tempZoom = sampleTimeValue_pol1
+				tempScroll = timeRegionValue_pol1
 				#Update variables to new values
-				zoomInit_pol1=self.spinBoxDayZoom_pol1.value()*86400+self.spinBoxHrsZoom_pol1.value()*3600+self.spinBoxMinZoom_pol1.value()*60
-				scrollInit_pol1=self.spinBoxDayScale_pol1.value()*86400+self.spinBoxHrsScale_pol1.value()*3600+self.spinBoxMinScale_pol1.value()*60
+				sampleTimeValue_pol1=self.spinBoxDayZoom_pol1.value()*86400+self.spinBoxHrsZoom_pol1.value()*3600+self.spinBoxMinZoom_pol1.value()*60
+				timeRegionValue_pol1=self.spinBoxDayScale_pol1.value()*86400+self.spinBoxHrsScale_pol1.value()*3600+self.spinBoxMinScale_pol1.value()*60
 				#Check if new values exceed maximum buffer time
-				if (zoomInit_pol1 > maximumTime):
-					zoomInit_pol1 = tempZoom
-					self.spinBoxDayZoom_pol1.setValue(time.gmtime(zoomInit_pol1).tm_yday-1)
-					self.spinBoxHrsZoom_pol1.setValue(time.gmtime(zoomInit_pol1).tm_hour)
-					self.spinBoxMinZoom_pol1.setValue(time.gmtime(zoomInit_pol1).tm_min)
-				if (scrollInit_pol1 > maximumTime):
-					scrollInit_pol1 = tempScroll
-					self.spinBoxDayScale_pol1.setValue(time.gmtime(scrollInit_pol1).tm_yday-1)
-					self.spinBoxHrsScale_pol1.setValue(time.gmtime(scrollInit_pol1).tm_hour)
-					self.spinBoxMinScale_pol1.setValue(time.gmtime(scrollInit_pol1).tm_min)
+				if (sampleTimeValue_pol1 > maximumTime):
+					sampleTimeValue_pol1 = tempZoom
+					self.spinBoxDayZoom_pol1.setValue(time.gmtime(sampleTimeValue_pol1).tm_yday-1)
+					self.spinBoxHrsZoom_pol1.setValue(time.gmtime(sampleTimeValue_pol1).tm_hour)
+					self.spinBoxMinZoom_pol1.setValue(time.gmtime(sampleTimeValue_pol1).tm_min)
+				if (timeRegionValue_pol1 > maximumTime):
+					timeRegionValue_pol1 = tempScroll
+					self.spinBoxDayScale_pol1.setValue(time.gmtime(timeRegionValue_pol1).tm_yday-1)
+					self.spinBoxHrsScale_pol1.setValue(time.gmtime(timeRegionValue_pol1).tm_hour)
+					self.spinBoxMinScale_pol1.setValue(time.gmtime(timeRegionValue_pol1).tm_min)
 
-				if zoomInit_pol1==0:
-					zoomInit_pol1 = 5
+				if sampleTimeValue_pol1<5:	#Set minumum range to 5 seconds not below 5
+					sampleTimeValue_pol1 = 5
 
-				self.spectrumSlider_pol1.setRange(scrollInit_pol1,scrollInit_pol1+zoomInit_pol1) #Re-adjust range of spectrum slider to cover the visible waterfall spectrum
+				self.spectrumSlider_pol1.setRange(timeRegionValue_pol1,timeRegionValue_pol1+sampleTimeValue_pol1) #Re-adjust range of spectrum slider to cover the visible waterfall spectrum
 
 				lastTimeValue = self.spectrogram.spectPlotPol1.get_extent()
 				[top, bottom] = self.spectrogram.spectAxPol1.get_ylim()#Get bottom stretch of the spectrogram data
 
 				if (lastTimeValue[2]<bottom):#Check if end of data is visible in spectrogram
-					self.spectrumSlider_pol1.setRange(scrollInit_pol1,np.rint(lastTimeValue[2])) #Prevent the horizontal slider from exceeding the end of data
+					self.spectrumSlider_pol1.setRange(timeRegionValue_pol1,np.rint(lastTimeValue[2])) #Prevent the horizontal slider from exceeding the end of data
 
 				self.secondsToTimePol1()
 
-				slidersHaveBeenChanged_pol1=True
+				slidersHaveBeenChanged_pol1=True	#Update state
 
 				# Adjust chart UI with new slider values.
-				self.graphZoomSlider_pol1.setValue(zoomInit_pol1)
-				self.graphScrollSlider_pol1.setValue(scrollInit_pol1)
+				self.graphZoomSlider_pol1.setValue(sampleTimeValue_pol1)
+				self.graphScrollSlider_pol1.setValue(timeRegionValue_pol1)
 
 				self.spectrogram.updateCaptureRange('pol1')
 
@@ -1035,11 +1019,11 @@ class MainWindow(QtGui.QMainWindow):
 		slidersHaveBeenChanged_pol1, horizontalslidersHaveBeenChanged_pol1
 		if pol=='pol0':
 			self.checkSpectrumSlider('pol0')
-			spectrumNumberScale = self.spectrumSlider.value()	#Store new spectrum number
+			spectrumNumberScale = self.spectrumSlider.value()	#Store new spectrum number from the UI
 			horizontalslidersHaveBeenChanged=True
 		if pol=='pol1':
 			self.checkSpectrumSlider('pol1')
-			spectrumNumberScale_pol1 = self.spectrumSlider_pol1.value()	#Store new spectrum number
+			spectrumNumberScale_pol1 = self.spectrumSlider_pol1.value()	#Store new spectrum number from the UI
 			horizontalslidersHaveBeenChanged_pol1=True
 
 	def Lockedcheckbox_toggled(self, value):
@@ -1055,16 +1039,16 @@ class MainWindow(QtGui.QMainWindow):
 			if displayAverage:
 				self.spectrogram.histAxPol0.set_title('Frequency Spectrum')
 				displayAverage=False
-				horizontalslidersHaveBeenChanged=True
+				horizontalslidersHaveBeenChanged=True	#Disable the spectrum slider
 			else:
 				displayAverage=True
 				self.spectrogram.hline.set_ydata(0)
 				extentValue = self.spectrogram.spectPlotPol0.get_extent()
 				[top, bottom] = self.spectrogram.spectAxPol0.get_ylim()
-				if(extentValue[2] < top):
+				if(extentValue[2] < top):	#If the end of the waterfall is visible, set the top to the end of the spectrum
 					top = np.rint(extentValue[2])
-				bottom = np.rint(bottom/3.3)	#Scale to array indexes (3.3 refers to the average storing time from SnapBoard)
-				top = np.rint(top/3.3)	#Scale to array indexes (3.3 refers to the average storing time from SnapBoard)
+				bottom = np.rint(bottom/snapboard_capture_time)	#Scale to array indexes (snapboard_capture_time refers to the average storing time from SnapBoard)
+				top = np.rint(top/snapboard_capture_time)	#Scale to array indexes (snapboard_capture_time refers to the average storing time from SnapBoard)
 				self.spectrogram.average_data = np.mean(self.spectrogram.pol0[bottom:(top+1),:], axis = 0)	#Get average from bottom to top of spectrogram
 				histData = np.log(self.spectrogram.average_data)
 				histData_dB = 10*np.log10(2**histData)
@@ -1074,16 +1058,16 @@ class MainWindow(QtGui.QMainWindow):
 			if displayAverage_pol1:
 				self.spectrogram.histAxPol1.set_title('Frequency Spectrum')
 				displayAverage_pol1=False
-				horizontalslidersHaveBeenChanged_pol1=True
+				horizontalslidersHaveBeenChanged_pol1=True	#Disable the spectrum slider
 			else:
 				displayAverage_pol1=True
 				self.spectrogram.hline_pol1.set_ydata(0)
 				extentValue = self.spectrogram.spectPlotPol1.get_extent()
 				[top, bottom] = self.spectrogram.spectAxPol1.get_ylim()
-				if(extentValue[2] < top):
-					top = np.rint(extentValue[2]) #Used to move through all the previous data
-				bottom = np.rint(bottom/3.3)	#Scale to array indexes (3.3 refers to the average storing time from SnapBoard)
-				top = np.rint(top/3.3)	#Scale to array indexes (3.3 refers to the average storing time from SnapBoard)
+				if(extentValue[2] < top):	#If the end of the waterfall is visible, set the top to the end of the spectrum
+					top = np.rint(extentValue[2])
+				bottom = np.rint(bottom/snapboard_capture_time)	#Scale to array indexes (snapboard_capture_time refers to the average storing time from SnapBoard)
+				top = np.rint(top/snapboard_capture_time)	#Scale to array indexes (snapboard_capture_time refers to the average storing time from SnapBoard)
 				self.spectrogram.average_data_pol1 = np.mean(self.spectrogram.pol1[bottom:(top+1),:], axis = 0)	#Get average from bottom to top of spectrogram
 				histData = np.log(self.spectrogram.average_data_pol1)
 				histData_dB = 10*np.log10(2**histData)
@@ -1091,7 +1075,11 @@ class MainWindow(QtGui.QMainWindow):
 				self.spectrogram.histAxPol1.set_title('Frequency Spectrum (Average)')
 
 	def _calibrateBtn(self):
-		global displayAverage, scrollInit, zoomInit
+		global displayAverage, timeRegionValue, sampleTimeValue
+
+		self.spectrogram.horizontalMarker = 0	#This is the variable that stores the height of the spectrum marker on the interface (black dashed line)
+		self.spectrogram.horizontalMarker_pol1 = 0	#This is the variable that stores the height of the spectrum marker on the interface (black dashed line)
+
 		self.spectrogram.initializePol0()
 		self.spectrogram.initializePol1()
 
@@ -1102,8 +1090,7 @@ class MainWindow(QtGui.QMainWindow):
 			histData = np.log(self.spectrogram.average_data)
 			histData_dB = 10*np.log10(2**histData)
 		else:
-			self.spectrogram.hline.set_ydata(0)
-			self.spectrogram.hline = self.spectrogram.spectAxPol0.axhline(self.spectrogram.horizontalMarker, color='k', linestyle='--', linewidth=2)
+			self.spectrogram.hline = self.spectrogram.spectAxPol0.axhline(self.spectrogram.horizontalMarker, color='k', linestyle='--', linewidth=2)	#Create new horizontal line
 			self.spectrogram.hline.set_ydata(0)
 			spectrumMarkerRounded = np.rint(self.spectrogram.spectrumMarker)
 			self.spectrogram.data = self.spectrogram.pol0[spectrumMarkerRounded]
@@ -1117,8 +1104,7 @@ class MainWindow(QtGui.QMainWindow):
 			histData = np.log(self.spectrogram.average_data_pol1)
 			histData_dB = 10*np.log10(2**histData)
 		else:
-			self.spectrogram.hline_pol1.set_ydata(0)
-			self.spectrogram.hline_pol1 = self.spectrogram.spectAxPol1.axhline(self.spectrogram.horizontalMarker_pol1, color='k', linestyle='--', linewidth=2)
+			self.spectrogram.hline_pol1 = self.spectrogram.spectAxPol1.axhline(self.spectrogram.horizontalMarker_pol1, color='k', linestyle='--', linewidth=2)	#Create new horizontal line
 			self.spectrogram.hline_pol1.set_ydata(0)
 			spectrumMarkerRounded = np.rint(self.spectrogram.spectrumMarker_pol1)
 			self.spectrogram.data_pol1 = self.spectrogram.pol1[spectrumMarkerRounded]
@@ -1131,36 +1117,38 @@ class MainWindow(QtGui.QMainWindow):
 		if(retval == QtGui.QMessageBox.Ok):
 			self.spectrogram.pol0 = np.delete(self.spectrogram.pol0, slice(0,self.spectrogram.num_rows), axis=0)
 			self.spectrogram.spectPlotPol0.set_extent([0,250,0,0])
+			self.spectrogram.hline.set_ydata(0)
 			self.spectrogram.pol1 = np.delete(self.spectrogram.pol1, slice(0,self.spectrogram.num_rows_pol1), axis=0)
 			self.spectrogram.spectPlotPol1.set_extent([0,250,0,0])
+			self.spectrogram.hline_pol1.set_ydata(0)
 
 	def setMaximumTime(self):
 		global maximumTime
 		newTime = (86400*self.spinBoxDay.value()) + (3600*self.spinBoxHour.value()) + (60*self.spinBoxMinute.value())
 
-		lastTimeValue = self.spectrogram.spectPlotPol0.get_extent()
+		lastTimeValue = self.spectrogram.spectPlotPol0.get_extent()	#Get the bottom of the spectrum on the waterfall plot. 'pol0.scio' and 'pol1.scio' should have the same number of spectrum
 
-		if newTime==0:
+		if newTime==0:	#If zero time is entered, reset to one day
 			maximumTime=86400
 			self.spinBoxDay.setValue(1)
 			self._zeroMaxTimeError()
 		else:
-			if (newTime < lastTimeValue[2]):
-				retval = self.showMaxTimeDialog()
+			if (newTime < lastTimeValue[2]):	#If buffer time is shorter than the elapsed spectra time. Show error
+				retval = self.showMaxTimeDialog()	#If user accepts, cut off exceeding time
 				if(retval == QtGui.QMessageBox.Ok):
 					maximumTime = newTime
-					self.graphScrollSlider.setRange(0, maximumTime) #Used to move through all the previous data
-					self.graphZoomSlider.setRange(5, maximumTime)  #Used to zoom into the region where the spectrum is being examined
-					self.spectrumSlider.setRange(scrollInit,scrollInit+zoomInit)#Used to move through all the previous data
-				else:
+					self.graphScrollSlider.setRange(0, maximumTime)
+					self.graphZoomSlider.setRange(5, maximumTime)
+					self.spectrumSlider.setRange(timeRegionValue,timeRegionValue+sampleTimeValue)
+				else:	#Else cancel
 					self.spinBoxDay.setValue(time.gmtime(maximumTime).tm_yday-1)
 					self.spinBoxHour.setValue(time.gmtime(maximumTime).tm_hour)
 					self.spinBoxMinute.setValue(time.gmtime(maximumTime).tm_min)
 			else:
 				maximumTime = newTime
-				self.graphScrollSlider.setRange(0, maximumTime) #Used to move through all the previous data
-				self.graphZoomSlider.setRange(5, maximumTime)  #Used to zoom into the region where the spectrum is being examined
-				self.spectrumSlider.setRange(scrollInit,scrollInit+zoomInit)#Used to move through all the previous data
+				self.graphScrollSlider.setRange(0, maximumTime)	#Update sliders to represent the new buffer time
+				self.graphZoomSlider.setRange(5, maximumTime)
+				self.spectrumSlider.setRange(timeRegionValue,timeRegionValue+sampleTimeValue)
 
 
 	def checkSpectrumSlider(self,pol):
@@ -1169,16 +1157,16 @@ class MainWindow(QtGui.QMainWindow):
 			lastTimeValue = self.spectrogram.spectPlotPol0.get_extent()
 			[top, bottom] = self.spectrogram.spectAxPol0.get_ylim()
 			if(lastTimeValue[2] < top):
-				self.spectrumSlider.setRange(scrollInit,np.rint(lastTimeValue[2])) #Ensure that the range of the spectrum slider does not exceed data size
+				self.spectrumSlider.setRange(timeRegionValue,np.rint(lastTimeValue[2])) #Ensure that the range of the spectrum slider does not exceed data size
 			else:
-				self.spectrumSlider.setRange(scrollInit,scrollInit+zoomInit) #Else let spectrum slider cover the colormap
+				self.spectrumSlider.setRange(timeRegionValue,timeRegionValue+sampleTimeValue) #Else let spectrum slider cover the colormap
 		if(pol=='pol1'):
 			lastTimeValue = self.spectrogram.spectPlotPol1.get_extent()
 			[top, bottom] = self.spectrogram.spectAxPol1.get_ylim()
 			if(lastTimeValue[2] < top):
-				self.spectrumSlider_pol1.setRange(scrollInit_pol1,np.rint(lastTimeValue[2]))#Ensure that the range of the spectrum slider does not exceed data size
+				self.spectrumSlider_pol1.setRange(timeRegionValue_pol1,np.rint(lastTimeValue[2]))#Ensure that the range of the spectrum slider does not exceed data size
 			else:
-				self.spectrumSlider_pol1.setRange(scrollInit_pol1,scrollInit_pol1+zoomInit_pol1)#Else let spectrum slider cover the colormap
+				self.spectrumSlider_pol1.setRange(timeRegionValue_pol1,timeRegionValue_pol1+sampleTimeValue_pol1)#Else let spectrum slider cover the colormap
 
 	def showMaxTimeDialog(self):
 		msg = QtGui.QMessageBox()
