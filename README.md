@@ -1,9 +1,8 @@
-PRIZM-RTSA (Real Time Spectrum Analyser) - This repository contains the necessary scripts to collect 
-the 'scio'(pol0 & pol1) files from a snapboard and to display the data on an interactive user interface.
+PRIZM-RTSA (Real Time Spectrum Analyser)
 ========================================================================================================
-____________________________________________________________________________________________________
-The following dependencies are required in order to the code: python, matplotlib, pyside, numpy, qt4
-____________________________________________________________________________________________________
+________________________________________________________________________________________________________
+This file contains the necessary instructions to install the depenndancies and run the RTSA
+________________________________________________________________________________________________________
 
 Install Python 2.7
 ---------------------
