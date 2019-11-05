@@ -12,11 +12,11 @@
 
 import sys
 
-from PySide import QtGui
+from PyQt5 import QtWidgets
 
 import SpectrogramUI
 
 
-app = QtGui.QApplication(sys.argv)
+app = QtWidgets.QApplication(sys.argv)
 ui = SpectrogramUI.MainWindow()
 sys.exit(app.exec_())

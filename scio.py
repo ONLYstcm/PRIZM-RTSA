@@ -1,9 +1,6 @@
 import numpy
 import os
 
-
-    
-
 class scio:
     def __init__(self,fname,arr=None,status='w',compress=None,diff=False):
         if not(compress is None):
@@ -27,10 +24,9 @@ class scio:
             self.write_header(arr)
             self.append(arr)
 
-            
     def __del__(self):
         if self.closed==False:
-            print 'closing scio file ' + self.fname
+            print('closing scio file ', self.fname)
             self.fid.flush()        
             self.fid.close()
             self.closed=True
@@ -63,7 +59,7 @@ class scio:
         if (arr.shape==self.shape):
             pass
         else:
-            print "shape mismatch in scio.append"            
+            print("shape mismatch in scio.append")       
         if (arr.dtype==self.dtype):
             if (self.diff):
                 if self.last is None:
@@ -76,36 +72,8 @@ class scio:
             arr_use.tofile(self.fid)
             self.fid.flush()
         else:
-            print 'dtype mismatch in scio.append on file ' + self.fname
-        
+            print('dtype mismatch in scio.append on file ', self.fname)
             
-#def append(arr,fname,overwrite=False):
-#    asdf='abc'
-#    assert(type(fname)==type(asdf))
-#    asdf=numpy.zeros(2)
-#    assert(type(arr)==type(asdf))
-#    if overwrite:
-#        os.system('rm  ' + fname)
-#        
-#    if (os.path.isfile(fname)):
-#        f=open(fname,'a')
-#        arr.tofile(f)
-#        f.close()
-#    else:
-#        print 'creating ' + fname
-#        f=open(fname,'w')
-#        sz=arr.shape
-#        myvec=numpy.zeros(len(sz)+2,dtype='int32')
-#        myvec[0]=len(sz)
-#        for i in range(len(sz)):
-#            myvec[i+1]=sz[i]
-#        myvec[-1]=dtype2int(arr)
-#        #print myvec
-#        #print sz
-#        #print type(myvec)
-#        myvec.tofile(f)
-#        arr.tofile(f)
-#        f.close()
 
 def read(fname):
     f=open(fname)
@@ -116,7 +84,7 @@ def read(fname):
     else:
         diff=False
         
-    sz=numpy.fromfile(f,'int32',ndim)
+    sz=numpy.fromfile(f,'int32', int(ndim))
     mytype=numpy.fromfile(f,'int32',1)
     vec=numpy.fromfile(f,dtype=int2dtype(mytype))
     nmat=vec.size/numpy.product(sz)
@@ -175,6 +143,6 @@ def dtype2int(dtype_str):
     if (dtype_str==aa.dtype):
         return -108
     
-    print 'unknown dtype'
+    print('unknown dtype')
     return 0
 
