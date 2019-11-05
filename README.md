@@ -3,26 +3,17 @@ PRIZM-RTSA (Real Time Spectrum Analyser)
 ________________________________________________________________________________________________________
 This file contains the necessary instructions to install the depenndancies and run the RTSA
 ________________________________________________________________________________________________________
-
-Install Python 2.7
----------------------
-- sudo apt-get install python
-
 Install Matplotlib
 ---------------------
-- sudo apt-get install python-matplotlib
+- pip install matplotlib
 
 Install Numpy
 ----------------
-- sudo apt-get install python-numpy
+- pip install numpy
 
-Install Qt4
+Install PyQt5
 --------------
-- sudo apt-get install python-qt4
-
-Install Pyside
------------------
-- sudo apt-get install python-pyside
+- pip install PyQt5
 
 Create a SSH_RSA KEY pair
 -------------------------
